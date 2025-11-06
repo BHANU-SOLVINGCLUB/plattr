@@ -13,7 +13,7 @@ import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 import PlatterVisualization from "@/components/PlatterVisualization";
 import FloatingCartButton from "@/components/FloatingCartButton";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
@@ -140,17 +140,38 @@ const DISH_TYPE_IMAGES: Record<string, string> = {
 };
 
 // Helper function to get dish image - now using Supabase storage
-const getDishImage = (dishName: string, dishImageUrl?: string): string => {
-  // First, try to use the Supabase image URL from the database
-  const supabaseUrl = getSupabaseImageUrl(dishImageUrl);
+const getDishImage = (dishName: string, dishImageUrl?: string, dishData?: any): string => {
+  // Handle both camelCase (imageUrl) and snake_case (image_url) from Supabase
+  const imageUrlFromDb = dishImageUrl || dishData?.image_url || dishData?.imageUrl;
   
-  // If it's not a local placeholder, return the Supabase URL
-  if (supabaseUrl && !supabaseUrl.includes('placeholder')) {
-    return supabaseUrl;
+  // Debug: log the image URL from database
+  console.log(`[getDishImage] Dish: "${dishName}", DB imageUrl: "${imageUrlFromDb}"`, dishData);
+  
+  // First, ALWAYS try to use the Supabase image URL from the database if it exists
+  // Only use fallback if imageUrl is null/undefined/empty
+  if (imageUrlFromDb && imageUrlFromDb.trim() !== '') {
+    const supabaseUrl = getSupabaseImageUrl(imageUrlFromDb);
+    console.log(`[getDishImage] Constructed URL: "${supabaseUrl}"`);
+    // If it's a valid Supabase URL (not a placeholder), use it
+    if (supabaseUrl && !supabaseUrl.includes('placeholder') && supabaseUrl.startsWith('http')) {
+      console.log(`[getDishImage] Using Supabase URL for "${dishName}"`);
+      return supabaseUrl;
+    }
   }
+  console.log(`[getDishImage] Using fallback image for "${dishName}"`);
   
   // Otherwise, fall back to local assets based on dish name
   const name = dishName.toLowerCase();
+  
+  // Specific dish mappings - exact matches first
+  if (name === 'achari paneer tikka') {
+    return 'https://leltckltotobsibixhqo.supabase.co/storage/v1/object/public/dish_images/dishes/D-0002/main.png';
+  }
+  
+  // Paneer dishes - check before other patterns
+  if (name.includes('paneer tikka') || name.includes('achari paneer')) return platterImage;
+  if (name.includes('paneer')) return platterImage;
+  if (name.includes('tikka')) return platterImage;
   
   // Non-veg South Indian Tiffins - exact matches first
   if (name === 'egg dosa') return eggDosaImage;
@@ -178,9 +199,9 @@ const getDishImage = (dishName: string, dishImageUrl?: string): string => {
   if (name.includes('uttapam')) return uttapamImage;
   if (name.includes('pongal')) return pongalImage;
   
-  // General patterns
-  if (name.includes('dosa')) return masalaDosaImage;
-  if (name.includes('idli') || name.includes('idly')) return idliImage1;
+  // General patterns - be more specific to avoid false matches
+  if (name.includes('dosa') && !name.includes('paneer')) return masalaDosaImage;
+  if ((name.includes('idli') || name.includes('idly')) && !name.includes('paneer') && !name.includes('tikka')) return idliImage1;
   if (name.includes('vada') || name.includes('medu')) return vadaImage1;
   
   // North Indian Tiffins
@@ -199,8 +220,8 @@ const getDishImage = (dishName: string, dishImageUrl?: string): string => {
   if (name.includes('thali') || name.includes('meal')) return thaliImage;
   if (name.includes('curry') || name.includes('masala')) return platterImage;
   
-  // Default
-  return idliImage1;
+  // Default - use a more generic food image instead of idli
+  return platterImage;
 };
 
 const MEAL_TYPE_TITLES: Record<string, string> = {
@@ -209,6 +230,53 @@ const MEAL_TYPE_TITLES: Record<string, string> = {
   'lunch-dinner': 'Lunch & Dinner'
 };
 
+// Frontend-defined category structure for each meal type
+const MEAL_TYPE_CATEGORIES: Record<string, string[]> = {
+  'tiffins': [
+    'sides-and-accompaniments',
+    'bakery',
+    'sweets',
+    'beverages',
+    'desserts',
+    'salads',
+    'breakfast',
+    'snacks'
+  ],
+  'breakfast': [
+    'sides-and-accompaniments',
+    'bakery',
+    'sweets',
+    'beverages',
+    'desserts',
+    'salads',
+    'breakfast',
+    'snacks'
+  ],
+  'snacks': [
+    'sides-and-accompaniments',
+    'chaats',
+    'snacks',
+    'bakery',
+    'sweets',
+    'beverages',
+    'desserts',
+    'salads',
+    'breakfast'
+  ],
+  'lunch-dinner': [
+    'starters',
+    'sides-and-accompaniments',
+    'main-course',
+    'chaats',
+    'snacks',
+    'sweets',
+    'beverages',
+    'desserts',
+    'salads',
+    'soup',
+    'after-meal'
+  ]
+};
 
 // Cart now uses session-based authentication - no need for guest user ID
 
@@ -258,17 +326,54 @@ export default function CategoryPage() {
   const mealType = params?.mealType || 'tiffins';
   const pageTitle = MEAL_TYPE_TITLES[mealType] || 'Categories';
 
-  // Fetch categories
-  const { data: categories = [] } = useQuery<CategoryType[]>({
-    queryKey: ['/api/categories', mealType],
+  // Fetch ALL categories from database
+  const { data: allCategoriesFromDb = [] } = useQuery<CategoryType[]>({
+    queryKey: ['/api/categories', 'all'],
   });
 
-  // Fetch ALL dishes (for accurate category counts)
+  // Filter and order categories based on frontend mapping
+  const categories = useMemo(() => {
+    const categoryIds = MEAL_TYPE_CATEGORIES[mealType] || [];
+    
+    // Map category IDs to actual category objects
+    return categoryIds
+      .map(id => allCategoriesFromDb.find(cat => cat.id === id))
+      .filter(Boolean) as CategoryType[];
+  }, [allCategoriesFromDb, mealType]);
+
+  // Fetch ALL dishes for the current meal type's categories (for accurate category counts)
+  // Use the frontend-defined category IDs instead of querying the database
+  const categoryIdsForMealType = MEAL_TYPE_CATEGORIES[mealType] || [];
+  
+  // Fetch dishes for each category and merge them
   // Include dietary filter (except 'egg' which is client-side name matching)
   const dietaryForAllDishes = dietaryMode === 'egg' ? 'all' : dietaryMode;
-  const { data: allDishes = [] } = useQuery<Dish[]>({
-    queryKey: ['/api/dishes', mealType, 'all', dietaryForAllDishes],
-  });
+  
+  // Fetch dishes for all categories in this meal type
+  const allDishesQueries = categoryIdsForMealType.map(catId =>
+    useQuery<Dish[]>({
+      queryKey: ['/api/dishes', mealType, catId, dietaryForAllDishes],
+      enabled: !!catId,
+    })
+  );
+  
+  // Merge all dishes from all categories
+  const allDishes = useMemo(() => {
+    const merged: Dish[] = [];
+    const seenIds = new Set<string>();
+    
+    allDishesQueries.forEach(query => {
+      const dishes = query.data || [];
+      dishes.forEach(dish => {
+        if (!seenIds.has(dish.id)) {
+          seenIds.add(dish.id);
+          merged.push(dish);
+        }
+      });
+    });
+    
+    return merged;
+  }, [allDishesQueries.map(q => q.data).join(',')]);
 
   // Fetch dishes for selected category (for display)
   // Include dietary filter in query key so it refetches when filter changes
@@ -557,9 +662,12 @@ export default function CategoryPage() {
         }
       }
       
-      // Dish type filter
-      if (selectedDishType !== 'all' && dish.dishType !== selectedDishType) {
-        return false;
+      // Dish type filter - handle both camelCase and snake_case
+      if (selectedDishType !== 'all') {
+        const dishDishType = (dish as any).dish_type || dish.dishType;
+        if (dishDishType !== selectedDishType) {
+          return false;
+        }
       }
       
       // Dietary filter
@@ -605,10 +713,59 @@ export default function CategoryPage() {
 
   const hasActiveFilters = priceRange[0] !== 0 || priceRange[1] !== 500;
 
-  // Calculate items per category for counts (using cartItems for accuracy)
-  const getItemCountForCategory = (categoryId: string): number => {
-    if (!cartItems || !Array.isArray(cartItems)) return 0;
-    return cartItems.filter(item => item.dish.categoryId === categoryId).length;
+  // Get total dish count for a category (from all dishes, respecting filters)
+  const getDishCountForCategory = (categoryId: string): number => {
+    const count = allDishes.filter(d => {
+      // Handle both camelCase and snake_case from database
+      const dishCategoryId = (d as any).category_id || d.categoryId;
+      
+      // Filter by category
+      if (dishCategoryId !== categoryId) return false;
+      
+      // Apply dietary filter (egg is client-side)
+      if (dietaryMode === 'egg') {
+        if (!d.name.toLowerCase().includes('egg')) return false;
+      }
+      
+      return true;
+    }).length;
+    
+    // Debug logging - show unique category IDs in the dataset
+    const categoryIdSet = new Set(allDishes.map(d => (d as any).category_id || d.categoryId));
+    const uniqueCategoryIds = Array.from(categoryIdSet);
+    console.log(`[getDishCountForCategory] Looking for: "${categoryId}", Found: ${count}`, {
+      allDishesTotal: allDishes.length,
+      uniqueCategoryIds,
+      sampleDishes: allDishes.slice(0, 5).map(d => ({ 
+        name: d.name, 
+        categoryId: (d as any).category_id || d.categoryId 
+      }))
+    });
+    
+    return count;
+  };
+  
+  // Get dish count for a specific dish type
+  const getDishCountForDishType = (dishType: string): number => {
+    const count = dishes.filter(d => {
+      // Handle both camelCase and snake_case from database
+      const dishDishType = (d as any).dish_type || d.dishType;
+      return dishDishType === dishType;
+    }).length;
+    
+    // Debug logging - show unique dish types
+    const dishTypeSet = new Set(dishes.map(d => (d as any).dish_type || d.dishType).filter(Boolean));
+    const uniqueDishTypes = Array.from(dishTypeSet);
+    console.log(`[getDishCountForDishType] Looking for: "${dishType}", Found: ${count}`, {
+      dishesTotal: dishes.length,
+      uniqueDishTypes,
+      sampleDishes: dishes.slice(0, 5).map(d => ({ 
+        name: d.name, 
+        dishType: (d as any).dish_type || d.dishType 
+      }))
+    });
+    
+    return count;
   };
 
   return (
@@ -665,7 +822,7 @@ export default function CategoryPage() {
             
             {/* Show dish type options if available */}
             {dishTypes.map((dishType) => {
-              const count = dishes.filter(d => d.dishType === dishType).length;
+              const count = getDishCountForDishType(dishType);
               const dishTypeImage = DISH_TYPE_IMAGES[dishType] || DISH_TYPE_IMAGES['default'];
               
               return (
@@ -722,15 +879,15 @@ export default function CategoryPage() {
         <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm pb-4 mb-2 border-b shadow-md -mx-3 md:-mx-4 px-3 md:px-4">
           <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide px-1 pt-3">
             {categories.map((cat) => {
-              const itemCount = getItemCountForCategory(cat.id);
-              const totalInCategory = allDishes.filter(d => 
-                d.categoryId === cat.id
-              ).length;
+              const totalInCategory = getDishCountForCategory(cat.id);
               
               return (
                 <button
                   key={cat.id}
-                  onClick={() => setSelectedCategory(cat.id)}
+                  onClick={() => {
+                    setSelectedCategory(cat.id);
+                    setSelectedDishType('all'); // Reset dish type filter when changing category
+                  }}
                   className="flex flex-col items-center gap-1.5 transition-all flex-shrink-0"
                   data-testid={`tab-category-${cat.id}`}
                 >
@@ -760,7 +917,7 @@ export default function CategoryPage() {
                       variant={selectedCategory === cat.id ? "default" : "secondary"}
                       className="text-[10px] h-5 px-2 font-medium"
                     >
-                      {itemCount}/{totalInCategory}
+                      {totalInCategory}
                     </Badge>
                   </div>
                 </button>
@@ -895,7 +1052,7 @@ export default function CategoryPage() {
                   data-testid={`image-dish-${dish.id}`}
                 >
                   <img 
-                    src={getDishImage(dish.name, dish.imageUrl || undefined)}
+                    src={getDishImage(dish.name, dish.imageUrl || undefined, dish)}
                     alt={dish.name}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
@@ -1011,7 +1168,7 @@ export default function CategoryPage() {
               <div className="bg-muted p-3 rounded-lg">
                 <div className="flex gap-3 items-start">
                   <img
-                    src={getDishImage(selectedDish.name, selectedDish.imageUrl || undefined)}
+                    src={getDishImage(selectedDish.name, selectedDish.imageUrl || undefined, selectedDish)}
                     alt={selectedDish.name}
                     className="w-20 h-20 rounded-md object-cover"
                   />
@@ -1560,7 +1717,7 @@ export default function CategoryPage() {
               {detailDish && (
                 <div className="relative h-64 rounded-lg overflow-hidden">
                   <img 
-                    src={getDishImage(detailDish.name, detailDish.imageUrl || undefined)}
+                    src={getDishImage(detailDish.name, detailDish.imageUrl || undefined, detailDish)}
                     alt={detailDish.name}
                     className="w-full h-full object-cover"
                   />

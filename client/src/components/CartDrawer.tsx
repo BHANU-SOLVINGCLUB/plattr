@@ -244,12 +244,12 @@ export default function CartDrawer({
                       <div className="bg-card border rounded-xl p-4 hover-elevate">
                         <div className="flex gap-4">
                           <img 
-                            src={getSupabaseImageUrl(item.dish.imageUrl) || getDishImage(item.dish.name, item.dish.imageUrl || undefined)} 
+                            src={getSupabaseImageUrl((item.dish as any).image_url || item.dish.imageUrl) || getDishImage(item.dish.name, item.dish.imageUrl || undefined)} 
                             alt={item.dish.name}
                             className="w-24 h-24 rounded-lg object-cover flex-shrink-0"
                             data-testid="img-item"
                             onError={(e) => {
-                              e.currentTarget.src = getDishImage(item.dish.name);
+                              e.currentTarget.src = getDishImage(item.dish.name, undefined, item.dish as any);
                             }}
                           />
                           <div className="flex-1 min-w-0">

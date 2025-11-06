@@ -4,6 +4,7 @@ import { ArrowLeft, Edit2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
+import { getSupabaseImageUrl } from "@/lib/supabase";
 
 // Dish type
 interface Dish {
@@ -270,7 +271,7 @@ export default function PlannerDetailPage() {
                 >
                   <div className="aspect-square relative">
                     <img
-                      src={dish.imageUrl}
+                      src={getSupabaseImageUrl((dish as any).image_url || dish.imageUrl)}
                       alt={dish.name}
                       className="w-full h-full object-cover"
                     />

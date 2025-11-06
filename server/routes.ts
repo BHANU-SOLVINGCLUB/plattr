@@ -229,6 +229,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { mealType } = req.params;
       
       if (useRestAPI) {
+        // If fetching all categories, don't filter
+        if (mealType === 'all') {
+          const categories = await supabase.select('categories', {
+            select: '*',
+            order: 'display_order.asc'
+          });
+          
+          // Format categories for frontend
+          const formatted = categories.map((cat: any) => ({
+            id: cat.id || 'unknown',
+            name: cat.name || formatCategoryName(cat.id || 'unknown'),
+            mealType: cat.meal_type || '',
+            displayOrder: cat.display_order || 0,
+            imageUrl: cat.image_url || `/images/categories/${cat.id}.jpg`
+          }));
+          
+          res.json(formatted);
+          return;
+        }
+        
         // Use Supabase REST API - get categories filtered by meal_type
         // Map friendly meal type names to database values
         const mealTypeMap: Record<string, string> = {

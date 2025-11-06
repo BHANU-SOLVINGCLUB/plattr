@@ -246,7 +246,7 @@ export default function CheckoutPage() {
                   {items.map((item) => (
                     <div key={item.id} className="flex items-center gap-3" data-testid={`order-item-${item.id}`}>
                       <img 
-                        src={getSupabaseImageUrl(item.dish.imageUrl)} 
+                        src={getSupabaseImageUrl((item.dish as any).image_url || item.dish.imageUrl)} 
                         alt={item.dish.name}
                         className="w-12 h-12 rounded object-cover flex-shrink-0"
                       />

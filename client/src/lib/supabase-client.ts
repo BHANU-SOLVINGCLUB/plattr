@@ -208,6 +208,17 @@ export function mapApiRouteToSupabase(route: string[]): { table: string; options
   
   switch (endpoint) {
     case '/api/categories':
+      // If fetching all categories, don't filter by meal_type
+      if (mealType === 'all') {
+        return {
+          table: 'categories',
+          options: {
+            select: '*',
+            order: 'display_order.asc'
+          }
+        };
+      }
+      // Otherwise filter by meal_type
       return {
         table: 'categories',
         options: {

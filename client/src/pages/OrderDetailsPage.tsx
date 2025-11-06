@@ -185,7 +185,7 @@ export default function OrderDetailsPage() {
             {order.items.map((item) => (
               <div key={item.id} className="flex gap-4" data-testid={`order-item-${item.dish.id}`}>
                 <img
-                  src={getSupabaseImageUrl(item.dish.imageUrl) || '/placeholder.jpg'}
+                  src={getSupabaseImageUrl((item.dish as any).image_url || item.dish.imageUrl) || '/placeholder.jpg'}
                   alt={item.dish.name}
                   className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
                   data-testid="img-dish"
